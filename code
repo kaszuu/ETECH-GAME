@@ -1,0 +1,376 @@
+class Example extends Phaser.Scene {
+    constructor() {
+        super();
+        this.player = null;
+        this.ground = null;
+        this.backgroundMusic = null;
+        this.tips = [
+            "Try setting a daily screen time limit",
+            "Take regular breaks from your devices",
+            "Engage in outdoor activities",
+            "Read a physical book instead of an e-book",
+            "Have face-to-face conversations with friends",
+            "Practice mindfulness or meditation",
+            "Pick up a new hobby that doesn't involve screens",
+            "Turn off notifications on your phone",
+            "Use blue light filters on your devices",
+            "Keep devices out of the bedroom for better sleep"
+        ];
+        this.tipText = null;
+    }
+
+    preload() {
+        this.load.image('background', `https://play.rosebud.ai/assets/g1g0fmmp1qr31.png?d9UK`);
+        this.load.image('clouds', `https://play.rosebud.ai/assets/Big Clouds Blended.png?lXC5`);
+        this.load.image('red', `https://play.rosebud.ai/assets/red.png?q22O`);
+        this.load.image('groundTexture', 'https://play.rosebud.ai/assets/Dirt_02-256x256.png?UTlm');
+        this.load.image('platformTexture', 'https://play.rosebud.ai/assets/d90b4aeae16efb06bcae0d15ee3a0a70811d7976r1-480-480v2_hq.jpg?GR7k');
+        this.load.image('player', 'https://play.rosebud.ai/assets/0ad0159d-9c46-4aaf-b3c6-61dcf4338dc7-removebg-preview.png?yveY');
+        this.load.audio('backgroundMusic', 'https://play.rosebud.ai/assets/platformer_template_music.mp3?BCKi');
+        this.load.image('coin', 'https://play.rosebud.ai/assets/309094404_467256308758553_8951645505354723018_n-removebg-preview (1).png?qYlO');
+        this.load.image('scroll', 'https://play.rosebud.ai/assets/istockphoto-1492910431-612x612-removebg-preview.png?Mkuo');
+        this.load.image('phone', 'https://play.rosebud.ai/assets/pixel-phone-mobile-cell-isolated-260nw-removebg-preview.png?iFbG');
+    }
+
+    create() {
+        const backgroundImage = this.add.image(0, 0, 'background').setOrigin(0);
+        backgroundImage.setDisplaySize(this.sys.game.config.width, this.sys.game.config.height);
+        // Create moving clouds
+        this.clouds = this.add.tileSprite(0, 0, this.sys.game.config.width, this.sys.game.config.height * 0.5, 'clouds').setOrigin(0).setAlpha(0.3);
+        // Create the ground
+        this.createGround();
+        // Create platforms
+        this.createPlatforms();
+        // Create coins
+        this.coins = this.physics.add.group();
+        this.createCoins();
+        // Create player
+        this.createPlayer();
+        // Add breathing animation
+        this.addBreathingAnimation();
+        // Add keyboard input
+        this.cursors = this.input.keyboard.createCursorKeys();
+        this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        // Add colliders
+        this.physics.add.collider(this.player, this.ground);
+        this.physics.add.collider(this.player, this.platforms);
+        this.physics.add.overlap(this.player, this.coins, this.collectCoin, null, this);
+        this.physics.add.collider(this.coins, this.ground);
+        // Add background music
+        this.backgroundMusic = this.sound.add('backgroundMusic', {
+            loop: true,
+            volume: 0.1
+        });
+        this.backgroundMusic.play();
+        // Add score
+        this.coinsCollected = 0;
+        this.gradeText = this.add.text(16, 16, 'Grade: N/A', {
+            fontSize: '32px',
+            fill: '#000'
+        });
+        // Create scroll and tip container
+        this.scrollContainer = this.add.container(this.sys.game.config.width / 2, 100);
+        this.scrollContainer.setDepth(1);
+
+        this.scroll = this.add.image(0, 0, 'scroll');
+        this.scroll.setOrigin(0.5, 0.5);
+        this.scroll.setScale(0.6); // Reduced scale to make the scroll smaller
+        const scrollCenter = this.scroll.displayHeight * 0.5;
+        this.tipText = this.add.text(0, 0, '', {
+            fontSize: '12px', // Reduced font size for smaller tips
+            fill: '#000',
+            align: 'center',
+            wordWrap: {
+                width: this.scroll.displayWidth * 0.9 // Adjusted width for smaller scroll
+            },
+            lineSpacing: 4 // Reduced line spacing for smaller text
+        });
+        this.tipText.setOrigin(0.5, 0.5);
+        // Adjust the position of the scroll container
+        this.scrollContainer.setPosition(this.sys.game.config.width / 2, 120); // Moved up slightly for smaller scroll
+
+        this.scrollContainer.add([this.scroll, this.tipText]);
+        this.scrollContainer.setScale(1, 0);
+        this.scrollContainer.visible = false;
+        // Add phone trap
+        const groundHeight = 25; // This should match the ground height defined in createGround method
+        const phoneHeight = this.textures.get('phone').getSourceImage().height * 0.3; // Get the scaled height of the phone
+        this.phone = this.physics.add.staticImage(this.sys.game.config.width - 40, this.sys.game.config.height - groundHeight - phoneHeight / 2 - 20, 'phone');
+        this.phone.setScale(0.3);
+        this.phone.setImmovable(true);
+        this.physics.add.overlap(this.player, this.phone, this.touchPhone, null, this);
+        // Remove the collider with the ground as it's not necessary for a static object
+        // Add touch controls for mobile
+        this.input.addPointer(3); // Support multiple touch points
+        // Left control
+        this.leftButton = this.add.rectangle(50, this.sys.game.config.height - 50, 100, 100, 0x0000ff, 0.2);
+        this.leftButton.setInteractive();
+        this.leftButton.on('pointerdown', () => this.leftPressed = true);
+        this.leftButton.on('pointerup', () => this.leftPressed = false);
+        this.leftButton.on('pointerout', () => this.leftPressed = false);
+        // Right control
+        this.rightButton = this.add.rectangle(170, this.sys.game.config.height - 50, 100, 100, 0x0000ff, 0.2);
+        this.rightButton.setInteractive();
+        this.rightButton.on('pointerdown', () => this.rightPressed = true);
+        this.rightButton.on('pointerup', () => this.rightPressed = false);
+        this.rightButton.on('pointerout', () => this.rightPressed = false);
+        // Jump control
+        this.jumpButton = this.add.rectangle(this.sys.game.config.width - 75, this.sys.game.config.height - 75, 150, 150, 0xff0000, 0.2);
+        this.jumpButton.setInteractive();
+        this.jumpButton.on('pointerdown', this.jump, this);
+        // Make touch controls visible only on mobile devices
+        if (!this.sys.game.device.os.desktop) {
+            this.leftButton.setAlpha(0.5);
+            this.rightButton.setAlpha(0.5);
+            this.jumpButton.setAlpha(0.5);
+        } else {
+            this.leftButton.setAlpha(0);
+            this.rightButton.setAlpha(0);
+            this.jumpButton.setAlpha(0);
+        }
+        // Add timer
+        this.gameTimer = this.time.addEvent({
+            delay: 60000, // 60 seconds = 1 minute
+            callback: this.timeUp,
+            callbackScope: this
+        });
+        // Add timer text
+        this.timerText = this.add.text(16, 50, 'Time: 60', {
+            fontSize: '32px',
+            fill: '#000'
+        });
+    }
+
+    update() {
+        // Move clouds
+        this.clouds.tilePositionX -= 0.0167;
+        // Update timer text
+        if (this.gameTimer.getProgress() < 1) {
+            this.timerText.setText('Time: ' + Math.ceil(60 - this.gameTimer.getElapsed() / 1000));
+        }
+
+        // Player movement
+        if (this.cursors.left.isDown || this.leftPressed) {
+            this.player.setVelocityX(-160);
+            this.player.flipX = true; // Flip the sprite when moving left
+        } else if (this.cursors.right.isDown || this.rightPressed) {
+            this.player.setVelocityX(160);
+            this.player.flipX = false; // Don't flip the sprite when moving right
+        } else {
+            this.player.setVelocityX(0);
+        }
+        if ((this.cursors.up.isDown || Phaser.Input.Keyboard.JustDown(this.spaceKey)) && this.player.body.touching.down) {
+            this.jump();
+        }
+    }
+
+    createGround() {
+        const screenWidth = this.sys.game.config.width;
+        const screenHeight = this.sys.game.config.height;
+        const groundHeight = 25; // Height of the ground
+
+        // Create a tiled sprite for the ground
+        this.ground = this.add.tileSprite(0, screenHeight - groundHeight, screenWidth, groundHeight, 'groundTexture');
+        this.ground.setOrigin(0, 0);
+
+        // Set the tileScale to 1 to keep the original size of the texture
+        this.ground.tileScaleX = 1;
+        this.ground.tileScaleY = 1;
+
+        // Adjust the tilePosition to align the texture with the bottom of the ground
+        this.ground.tilePositionY = this.ground.height - groundHeight;
+
+        // Set nearest neighbor filtering for pixel-perfect rendering
+        this.ground.texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+
+        // Add physics to the ground
+        this.physics.add.existing(this.ground, true);
+    }
+
+    createPlatforms() {
+        this.platforms = this.physics.add.staticGroup();
+        const platformWidth = 100;
+        const platformHeight = 20;
+        // Add platforms in a fun way
+        this.platforms.create(100, 400, 'platformTexture').setScale(platformWidth / 480, platformHeight / 480).refreshBody();
+        this.platforms.create(500, 350, 'platformTexture').setScale(platformWidth / 480, platformHeight / 480).refreshBody();
+        this.platforms.create(300, 250, 'platformTexture').setScale(platformWidth / 480, platformHeight / 480).refreshBody();
+        this.platforms.create(100, 150, 'platformTexture').setScale(platformWidth / 480, platformHeight / 480).refreshBody();
+        this.platforms.create(550, 180, 'platformTexture').setScale(platformWidth / 480, platformHeight / 480).refreshBody();
+        // Set linear filtering for smoother scaling
+        this.platforms.children.entries.forEach(platform => {
+            platform.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+        });
+    }
+    createCoins() {
+        this.coins = this.physics.add.group();
+        this.platforms.children.entries.forEach(platform => {
+            const coin = this.coins.create(platform.x, platform.y - platform.displayHeight / 2 - 20, 'coin');
+            coin.setScale(0.08);
+            coin.setBounce(0.1);
+            coin.setCollideWorldBounds(true);
+            coin.setGravityY(300);
+        });
+        this.physics.add.collider(this.coins, this.platforms);
+        this.physics.add.collider(this.coins, this.ground);
+    }
+
+    createPlayer() {
+        const screenHeight = this.sys.game.config.height;
+        const groundHeight = 25;
+        this.player = this.physics.add.sprite(300, 400, 'player');
+        this.player.setScale(0.25); // Increased from 0.15 to 0.25 to make the character bigger
+        this.player.setBounce(0.1);
+        this.player.setCollideWorldBounds(true);
+        // Adjust the player's body size and offset
+        this.player.body.setSize(this.player.width * 0.5, this.player.height * 0.8);
+        this.player.body.setOffset(this.player.width * 0.25, this.player.height * 0.2);
+        // Set player physics properties (similar to Mario)
+        this.player.body.setGravityY(600);
+        this.player.body.setDragX(500);
+    }
+
+    addBreathingAnimation() {
+        this.tweens.add({
+            targets: this.player,
+            scaleY: this.player.scaleY * 1.03, // Reduced the breathing effect slightly
+            duration: 500,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+    }
+    collectCoin(player, coin) {
+        coin.disableBody(true, true);
+        this.coinsCollected++;
+        this.updateGrade();
+        // Display a random tip
+        let randomTip = this.tips[Math.floor(Math.random() * this.tips.length)];
+        // Split the tip into multiple lines if it's too long
+        let words = randomTip.split(' ');
+        let lines = [];
+        let currentLine = '';
+        for (let word of words) {
+            if ((currentLine + word).length > 30) { // Reduced max line length
+                lines.push(currentLine.trim());
+                currentLine = word + ' ';
+            } else {
+                currentLine += word + ' ';
+            }
+        }
+        lines.push(currentLine.trim());
+        randomTip = lines.join('\n');
+        // Truncate if it's still too long
+        if (randomTip.length > 100) { // Reduced max tip length
+            randomTip = randomTip.substring(0, 97) + '...';
+        }
+        this.tipText.setText(randomTip);
+        // Make sure the scroll container is visible
+        this.scrollContainer.visible = true;
+        // Animate scroll opening
+        this.tweens.add({
+            targets: this.scrollContainer,
+            scaleY: 1,
+            duration: 500,
+            ease: 'Back.easeOut',
+            onComplete: () => {
+                // Clear the tip after 5 seconds
+                this.time.delayedCall(5000, this.clearTip, [], this);
+            }
+        });
+    }
+    clearTip() {
+        this.tweens.add({
+            targets: this.scrollContainer,
+            scaleY: 0,
+            duration: 500,
+            ease: 'Back.easeIn',
+            onComplete: () => {
+                this.scrollContainer.visible = false;
+            }
+        });
+    }
+    touchPhone(player, phone) {
+        // Check if the player is actually overlapping with the phone
+        if (Phaser.Geom.Intersects.RectangleToRectangle(player.getBounds(), phone.getBounds())) {
+            this.physics.pause();
+            player.setTint(0xff0000);
+            player.anims.stop();
+            let gameOverText = this.add.text(this.sys.game.config.width / 2, this.sys.game.config.height / 2 - 50, 'Game Over', {
+                fontSize: '32px',
+                fill: '#000'
+            });
+            gameOverText.setOrigin(0.5);
+            let messageText = this.add.text(this.sys.game.config.width / 2, this.sys.game.config.height / 2 + 50, 'Remember to lessen your phone usage!', {
+                fontSize: '20px',
+                fill: '#000',
+                align: 'center',
+                wordWrap: {
+                    width: 300
+                }
+            });
+            messageText.setOrigin(0.5);
+            this.time.delayedCall(3000, () => {
+                this.scene.restart();
+            });
+        }
+    }
+    updateGrade() {
+        let grade;
+        if (this.coinsCollected === 1) grade = 80;
+        else if (this.coinsCollected === 2) grade = 85;
+        else if (this.coinsCollected === 3) grade = 90;
+        else if (this.coinsCollected === 4) grade = 95;
+        else if (this.coinsCollected >= 5) grade = 100;
+        else grade = 'N/A';
+        this.gradeText.setText('Grade: ' + grade);
+    }
+    jump() {
+        if (this.player.body.touching.down) {
+            this.player.setVelocityY(-630);
+        }
+    }
+    timeUp() {
+        this.physics.pause();
+        this.player.setTint(0xff0000);
+        this.player.anims.stop();
+        let messageText = this.add.text(this.sys.game.config.width / 2, this.sys.game.config.height / 2, 'Tama na, masyado kana matagal naglalaro', {
+            fontSize: '20px',
+            fill: '#000',
+            align: 'center',
+            wordWrap: {
+                width: 300
+            }
+        });
+        messageText.setOrigin(0.5);
+        this.time.delayedCall(3000, () => {
+            this.scene.restart();
+        });
+    }
+}
+
+const container = document.getElementById('renderDiv');
+const config = {
+    type: Phaser.AUTO,
+    parent: 'renderDiv',
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+    width: 600,
+    height: 600,
+    pixelArt: true,
+    crisp: true,
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: {
+                y: 300
+            },
+            debug: false
+        }
+    },
+    scene: Example
+};
+
+window.phaserGame = new Phaser.Game(config);
